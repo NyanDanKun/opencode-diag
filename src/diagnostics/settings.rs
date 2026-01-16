@@ -172,7 +172,7 @@ impl DiagnosticSettings {
     
     /// Adjust scale by delta (for Ctrl+scroll)
     pub fn adjust_scale(&mut self, delta: f32) {
-        self.ui_scale = (self.ui_scale + delta).clamp(0.75, 2.5);
+        self.ui_scale = (self.ui_scale + delta).clamp(1.0, 2.5);
     }
     
     /// Format scale as percentage

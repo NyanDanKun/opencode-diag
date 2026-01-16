@@ -910,22 +910,69 @@ impl eframe::App for App {
 }
 
 impl App {
-    /// Render a styled checkbox with monospace label
+    /// Render a styled checkbox with monospace label (whole row is interactive)
     fn render_styled_checkbox(ui: &mut egui::Ui, value: &mut bool, label: &str, text_color: egui::Color32) {
-        ui.horizontal(|ui| {
-            ui.checkbox(value, "");
-            ui.add_space(-5.0);
-            if ui.add(
-                egui::Label::new(
-                    egui::RichText::new(label)
-                        .size(10.0)
-                        .family(egui::FontFamily::Monospace)
-                        .color(text_color)
-                ).sense(egui::Sense::click())
-            ).clicked() {
-                *value = !*value;
-            }
-        });
+        // Allocate space for the whole row
+        let desired_size = egui::vec2(ui.available_width().min(200.0), 18.0);
+        let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+        
+        if response.clicked() {
+            *value = !*value;
+        }
+        
+        // Determine colors based on hover
+        let label_color = if response.hovered() {
+            // Brighter on hover
+            egui::Color32::from_rgba_unmultiplied(text_color.r(), text_color.g(), text_color.b(), 255)
+        } else {
+            text_color
+        };
+        
+        // Draw checkbox manually
+        let checkbox_size = 14.0;
+        let checkbox_rect = egui::Rect::from_min_size(
+            rect.min + egui::vec2(0.0, (rect.height() - checkbox_size) / 2.0),
+            egui::vec2(checkbox_size, checkbox_size),
+        );
+        
+        // Checkbox background
+        let checkbox_fill = if *value {
+            ui.visuals().widgets.active.bg_fill
+        } else {
+            ui.visuals().widgets.inactive.bg_fill
+        };
+        ui.painter().rect_filled(checkbox_rect, 2.0, checkbox_fill);
+        ui.painter().rect_stroke(checkbox_rect, 2.0, egui::Stroke::new(1.0, ui.visuals().widgets.inactive.fg_stroke.color));
+        
+        // Checkmark
+        if *value {
+            let check_color = ui.visuals().widgets.active.fg_stroke.color;
+            let center = checkbox_rect.center();
+            let size = checkbox_size * 0.3;
+            ui.painter().line_segment(
+                [center + egui::vec2(-size, 0.0), center + egui::vec2(-size * 0.3, size * 0.7)],
+                egui::Stroke::new(2.0, check_color),
+            );
+            ui.painter().line_segment(
+                [center + egui::vec2(-size * 0.3, size * 0.7), center + egui::vec2(size, -size * 0.5)],
+                egui::Stroke::new(2.0, check_color),
+            );
+        }
+        
+        // Label
+        let label_pos = rect.min + egui::vec2(checkbox_size + 6.0, (rect.height() - 10.0) / 2.0);
+        ui.painter().text(
+            label_pos,
+            egui::Align2::LEFT_TOP,
+            label,
+            egui::FontId::new(10.0, egui::FontFamily::Monospace),
+            label_color,
+        );
+        
+        // Hover highlight
+        if response.hovered() {
+            ui.painter().rect_stroke(rect, 0.0, egui::Stroke::new(1.0, label_color.gamma_multiply(0.3)));
+        }
     }
 
     fn render_check_card(&mut self, ui: &mut egui::Ui, check: &CheckResult) {
@@ -950,9 +997,14 @@ impl App {
                     
                     ui.add_space(15.0);
                     
-                    // Content
+                    // Calculate available width for text (leave space for badge)
+                    let badge_width = 70.0; // 55px button + 15px spacing
+                    let available_width = ui.available_width() - badge_width - 20.0;
+                    
+                    // Content - constrained width
                     ui.vertical(|ui| {
-                        ui.add_space(10.0);
+                        ui.set_max_width(available_width.max(100.0));
+                        ui.add_space(8.0);
                         
                         ui.label(
                             egui::RichText::new(&check.name)
@@ -961,14 +1013,17 @@ impl App {
                                 .color(self.theme.text),
                         );
                         
-                        ui.label(
-                            egui::RichText::new(&check.details)
-                                .size(9.0)
-                                .family(egui::FontFamily::Monospace)
-                                .color(self.theme.text_dim),
+                        // Details with text wrapping
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&check.details)
+                                    .size(9.0)
+                                    .family(egui::FontFamily::Monospace)
+                                    .color(self.theme.text_dim)
+                            ).wrap()
                         );
                         
-                        ui.add_space(10.0);
+                        ui.add_space(8.0);
                     });
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1013,9 +1068,14 @@ impl App {
                     
                     ui.add_space(15.0);
                     
+                    // Calculate available width for text
+                    let badge_width = 70.0;
+                    let available_width = ui.available_width() - badge_width - 20.0;
+                    
                     // Content
                     ui.vertical(|ui| {
-                        ui.add_space(10.0);
+                        ui.set_max_width(available_width.max(100.0));
+                        ui.add_space(8.0);
                         
                         ui.label(
                             egui::RichText::new(name)
@@ -1024,14 +1084,16 @@ impl App {
                                 .color(self.theme.text_dim),
                         );
                         
-                        ui.label(
-                            egui::RichText::new(details)
-                                .size(9.0)
-                                .family(egui::FontFamily::Monospace)
-                                .color(self.theme.text_dim),
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(details)
+                                    .size(9.0)
+                                    .family(egui::FontFamily::Monospace)
+                                    .color(self.theme.text_dim)
+                            ).wrap()
                         );
                         
-                        ui.add_space(10.0);
+                        ui.add_space(8.0);
                     });
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
