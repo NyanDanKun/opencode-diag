@@ -1,0 +1,18 @@
+# Build artifacts
+/target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Release binaries (keep in releases/)
+*.exe
+*.dmg
+*.AppImage
