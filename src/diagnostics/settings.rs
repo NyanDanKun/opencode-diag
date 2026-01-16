@@ -11,6 +11,14 @@ pub const REFRESH_PRESETS: &[(u32, &str)] = &[
     (300, "5m"),
 ];
 
+/// Preset scale values
+pub const SCALE_PRESETS: &[(f32, &str)] = &[
+    (1.0, "100%"),
+    (1.25, "125%"),
+    (1.5, "150%"),
+    (2.0, "200%"),
+];
+
 /// Settings for which checks to perform
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DiagnosticSettings {
@@ -34,16 +42,19 @@ pub struct DiagnosticSettings {
     pub auto_refresh: bool,
     pub refresh_interval_secs: u32,
     
-    // History
+    // UI Scale
+    pub ui_scale: f32,
+    
+    // History (unused now, kept for compatibility)
     pub max_history_entries: usize,
 }
 
 impl Default for DiagnosticSettings {
     fn default() -> Self {
         Self {
-            // System - enabled by default
+            // System - CPU/RAM enabled, GPU disabled (experimental)
             check_cpu_ram: true,
-            check_gpu: true,
+            check_gpu: false,  // Disabled by default - WMI issues on some systems
             
             // Network - enabled by default
             check_internet: true,
@@ -60,6 +71,9 @@ impl Default for DiagnosticSettings {
             // Auto-refresh - disabled by default, 60s interval
             auto_refresh: false,
             refresh_interval_secs: 60,
+            
+            // UI Scale - 100%
+            ui_scale: 1.0,
             
             // History - keep last 10 reports
             max_history_entries: 10,
@@ -141,5 +155,28 @@ impl DiagnosticSettings {
         } else {
             format!("{}s", self.refresh_interval_secs)
         }
+    }
+    
+    /// Get the current scale preset index (or None if custom)
+    pub fn current_scale_index(&self) -> Option<usize> {
+        SCALE_PRESETS.iter()
+            .position(|(scale, _)| (*scale - self.ui_scale).abs() < 0.01)
+    }
+    
+    /// Set scale from preset index
+    pub fn set_scale_preset(&mut self, index: usize) {
+        if index < SCALE_PRESETS.len() {
+            self.ui_scale = SCALE_PRESETS[index].0;
+        }
+    }
+    
+    /// Adjust scale by delta (for Ctrl+scroll)
+    pub fn adjust_scale(&mut self, delta: f32) {
+        self.ui_scale = (self.ui_scale + delta).clamp(0.75, 2.5);
+    }
+    
+    /// Format scale as percentage
+    pub fn format_scale(&self) -> String {
+        format!("{}%", (self.ui_scale * 100.0) as u32)
     }
 }

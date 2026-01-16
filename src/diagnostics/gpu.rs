@@ -46,7 +46,7 @@ pub fn check_gpu() -> CheckResult {
                     if let Some(usage) = g.usage_percent {
                         format!("{}: {}%", name, usage as u32)
                     } else {
-                        name
+                        format!("{} (usage N/A)", name)
                     }
                 })
                 .collect();
@@ -69,9 +69,17 @@ pub fn check_gpu() -> CheckResult {
 
             CheckResult::new("GPU", status, &details)
         }
-        Err(e) => {
-            // Fallback: just list GPUs without usage
-            CheckResult::new("GPU", CheckStatus::Warning, &format!("Could not get GPU usage: {}", e))
+        Err(_) => {
+            // Graceful fallback: try to at least list GPUs
+            match get_gpu_names_only() {
+                Ok(names) if !names.is_empty() => {
+                    let details = format!("{} (usage N/A)", names.join(", "));
+                    CheckResult::new("GPU", CheckStatus::Ok, &details)
+                }
+                _ => {
+                    CheckResult::new("GPU", CheckStatus::Warning, "GPU detected (monitoring unavailable)")
+                }
+            }
         }
     }
 }
@@ -219,4 +227,25 @@ fn get_gpu_info_wmi() -> Result<Vec<GpuInfo>, String> {
     // For now, we'll just return the GPU list
     
     Ok(gpus)
+}
+
+/// Simple fallback to just get GPU names via different method
+#[cfg(target_os = "windows")]
+fn get_gpu_names_only() -> Result<Vec<String>, String> {
+    let com_con = COMLibrary::new().map_err(|e| format!("COM: {:?}", e))?;
+    let wmi_con = WMIConnection::new(com_con).map_err(|e| format!("WMI: {:?}", e))?;
+    
+    #[derive(Deserialize, Debug)]
+    #[serde(rename_all = "PascalCase")]
+    struct SimpleGpu {
+        name: Option<String>,
+    }
+    
+    let results: Vec<SimpleGpu> = wmi_con
+        .raw_query("SELECT Name FROM Win32_VideoController")
+        .map_err(|e| format!("{:?}", e))?;
+    
+    Ok(results.into_iter()
+        .filter_map(|g| g.name.map(|n| shorten_gpu_name(&n)))
+        .collect())
 }

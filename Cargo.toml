@@ -1,6 +1,6 @@
 [package]
 name = "opencode-diag"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["NyanDanKun"]
 description = "Diagnostics tool for OpenCode connection issues"

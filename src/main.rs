@@ -10,13 +10,48 @@ mod diagnostics;
 use eframe::egui;
 use theme::{Theme, ThemeMode, apply_theme};
 use diagnostics::{DiagnosticReport, ErrorLog, CheckResult, CheckStatus, DiagnosticSettings};
-use diagnostics::settings::REFRESH_PRESETS;
+use diagnostics::settings::{REFRESH_PRESETS, SCALE_PRESETS};
 use arboard::Clipboard;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Detect system theme (Windows)
+#[cfg(target_os = "windows")]
+fn detect_system_theme() -> ThemeMode {
+    use std::process::Command;
+    
+    // Query registry for AppsUseLightTheme
+    // 0 = Dark, 1 = Light
+    let output = Command::new("reg")
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "/v",
+            "AppsUseLightTheme",
+        ])
+        .output();
+    
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Look for "0x0" (dark) or "0x1" (light)
+        if stdout.contains("0x0") {
+            return ThemeMode::Dark;
+        } else if stdout.contains("0x1") {
+            return ThemeMode::Light;
+        }
+    }
+    
+    // Default to dark
+    ThemeMode::Dark
+}
+
+#[cfg(not(target_os = "windows"))]
+fn detect_system_theme() -> ThemeMode {
+    ThemeMode::Dark
+}
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -55,9 +90,13 @@ impl App {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let settings = DiagnosticSettings::load();
         
+        // Detect system theme
+        let theme_mode = detect_system_theme();
+        let theme = Theme::from_mode(theme_mode);
+        
         Self {
-            theme_mode: ThemeMode::Dark, // Start in dark mode
-            theme: Theme::DARK,
+            theme_mode,
+            theme,
             status: "SYS.STATUS: READY".to_string(),
             report: Arc::new(Mutex::new(DiagnosticReport::new())),
             is_running: Arc::new(Mutex::new(false)),
@@ -158,6 +197,17 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply UI scale
+        ctx.set_pixels_per_point(self.settings.ui_scale);
+        
+        // Handle Ctrl+scroll for zoom
+        let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);
+        let ctrl_held = ctx.input(|i| i.modifiers.ctrl);
+        if ctrl_held && scroll_delta != 0.0 {
+            let delta = if scroll_delta > 0.0 { 0.1 } else { -0.1 };
+            self.settings.adjust_scale(delta);
+        }
+        
         apply_theme(ctx, &self.theme);
 
         // Handle completed diagnostics - process errors for log
@@ -363,7 +413,28 @@ impl eframe::App for App {
                             ui.add_space(5.0);
                             let text_color = self.theme.text;
                             App::render_styled_checkbox(ui, &mut self.settings.check_cpu_ram, "CPU / RAM", text_color);
-                            App::render_styled_checkbox(ui, &mut self.settings.check_gpu, "GPU", text_color);
+                            
+                            // GPU with warning icon (experimental feature)
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut self.settings.check_gpu, "");
+                                ui.add_space(-5.0);
+                                if ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new("GPU")
+                                            .size(10.0)
+                                            .family(egui::FontFamily::Monospace)
+                                            .color(text_color)
+                                    ).sense(egui::Sense::click())
+                                ).clicked() {
+                                    self.settings.check_gpu = !self.settings.check_gpu;
+                                }
+                                ui.label(
+                                    egui::RichText::new("!")
+                                        .size(10.0)
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(0xff, 0x98, 0x00)) // Orange warning
+                                ).on_hover_text("Experimental: May not work on all systems");
+                            });
                             
                             ui.add_space(8.0);
                             ui.add(egui::Separator::default().spacing(1.0));
@@ -467,6 +538,65 @@ impl eframe::App for App {
                                     }
                                 });
                             }
+                            
+                            ui.add_space(8.0);
+                            ui.add(egui::Separator::default().spacing(1.0));
+                            ui.add_space(8.0);
+                            
+                            // Scale section
+                            ui.label(
+                                egui::RichText::new("// SCALE")
+                                    .size(9.0)
+                                    .family(egui::FontFamily::Monospace)
+                                    .color(self.theme.text_dim),
+                            );
+                            ui.add_space(5.0);
+                            
+                            ui.horizontal(|ui| {
+                                // Current scale display
+                                ui.label(
+                                    egui::RichText::new(self.settings.format_scale())
+                                        .size(9.0)
+                                        .family(egui::FontFamily::Monospace)
+                                        .color(self.theme.text_dim),
+                                );
+                                ui.add_space(10.0);
+                                
+                                // Preset buttons
+                                for (i, (_, label)) in SCALE_PRESETS.iter().enumerate() {
+                                    let is_selected = self.settings.current_scale_index() == Some(i);
+                                    let btn = egui::Button::new(
+                                        egui::RichText::new(*label)
+                                            .size(9.0)
+                                            .family(egui::FontFamily::Monospace)
+                                            .color(if is_selected { 
+                                                egui::Color32::WHITE 
+                                            } else { 
+                                                self.theme.text 
+                                            })
+                                    )
+                                    .fill(if is_selected { 
+                                        self.theme.accent_on 
+                                    } else { 
+                                        self.theme.panel 
+                                    })
+                                    .stroke(egui::Stroke::new(1.0, self.theme.border))
+                                    .rounding(0.0)
+                                    .min_size(egui::vec2(40.0, 18.0));
+                                    
+                                    if ui.add(btn).clicked() {
+                                        self.settings.set_scale_preset(i);
+                                    }
+                                }
+                            });
+                            
+                            ui.add_space(3.0);
+                            ui.label(
+                                egui::RichText::new("Ctrl+Scroll to adjust")
+                                    .size(8.0)
+                                    .family(egui::FontFamily::Monospace)
+                                    .color(self.theme.text_dim),
+                            );
                         });
                 });
         }
